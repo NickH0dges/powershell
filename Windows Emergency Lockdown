@@ -1,0 +1,163 @@
+# Designed by Nick Hodges
+# https://linkedin.com/in/nick-hodges/
+# https://github.com/NickH0dges
+# This PowerShell script can be deployed via Active Directory (AD) or locally in the event of an emergency, such as severe weather, an active threat, etc.
+# It has not yet been deployed on a large scale; the script has been made and tested.
+# I would love to hear if anyone deploys it using AD or Group Policy.
+# The script requires a trigger to activate; I have only run it by pressing "Run" in PowerShell.
+# When executed, the script blacks out the screen with a red background and displays a message like "LOCK-DOWN."
+# Once the emergency is cleared, end users or IT admins can click the "Acknowledge" button and enter a PIN.
+# The PIN is included in quotes because it is not secure and is stored in plaintext within the script.
+# However, it should work for this case; my idea is for the Emergency Coordinator to provide the PIN to everyone once the emergency is cleared.
+# After entering the correct PIN, the computer locks, and the user will have to log in again.
+# A few issues: If a tech-savvy user really wants to bypass the emergency prompt, they can press the Windows key, which may make the prompt disappear.
+# The same applies to Sticky Keys and CTRL+ALT+DEL. I attempted to make the script prevent the Windows key from being used but encountered issues.
+# BUT! they if they open an app the alleat will still be on top and take over the screen.
+# This script was inspired by the CrisisAlert school lockdown solution.
+#End of commnets
+
+Add-Type -AssemblyName PresentationFramework
+
+# Function to lock the computer
+function Lock-Computer {
+    Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class ComputerLocker {
+    [DllImport("user32.dll")]
+    public static extern bool LockWorkStation();
+}
+"@
+
+    [ComputerLocker]::LockWorkStation()
+}
+
+# Function to validate the PIN and close the window if correct
+function Validate-Pin {
+    param ($window, $pinInput)
+
+    # Define the correct PIN
+    $correctPin = "1234"
+
+    if ($pinInput -eq $correctPin) {
+        [System.Windows.MessageBox]::Show("Emergency acknowledged.")
+
+        # Close the emergency window
+        $window.Close()
+
+        # Lock the computer
+        Lock-Computer
+
+        # Terminate the script
+        exit
+    } else {
+        [System.Windows.MessageBox]::Show("Incorrect PIN")
+    }
+}
+
+# Function to show the PIN prompt in a new window
+function Show-PinPrompt {
+    param ($mainWindow)
+
+    # Create a new window for PIN entry
+    $pinWindow = New-Object -TypeName System.Windows.Window
+    $pinWindow.Title = "Enter PIN"
+    $pinWindow.Width = 300
+    $pinWindow.Height = 200
+    $pinWindow.WindowStartupLocation = 'CenterOwner'
+    $pinWindow.Owner = $mainWindow
+    $pinWindow.WindowStyle = 'SingleBorderWindow'
+    $pinWindow.ResizeMode = 'NoResize'  # Prevent resizing
+
+    # Create a stack panel for layout
+    $stackPanel = New-Object -TypeName System.Windows.Controls.StackPanel
+    $stackPanel.Orientation = 'Vertical'
+    $stackPanel.HorizontalAlignment = 'Center'
+    $stackPanel.VerticalAlignment = 'Center'
+    $stackPanel.Margin = "10,10,10,10"  # Directly setting margin
+
+    # PIN input field label
+    $pinLabel = New-Object -TypeName System.Windows.Controls.Label
+    $pinLabel.Content = "Enter PIN:"
+    $pinLabel.FontSize = 16
+    $pinLabel.HorizontalAlignment = 'Center'
+    $stackPanel.Children.Add($pinLabel)
+
+    # Textbox for PIN input with basic styling
+    $pinBox = New-Object -TypeName System.Windows.Controls.PasswordBox
+    $pinBox.MaxLength = 4  # Restrict to 4 digits
+    $pinBox.Width = 150
+    $pinBox.FontSize = 20
+    $pinBox.Background = [System.Windows.Media.Brushes]::White
+    $pinBox.Foreground = [System.Windows.Media.Brushes]::Black
+    $pinBox.HorizontalAlignment = 'Center'
+    $pinBox.Margin = "10,10,10,10"  # Directly setting margin
+    $stackPanel.Children.Add($pinBox)
+
+    # Submit button for PIN
+    $submitButton = New-Object -TypeName System.Windows.Controls.Button
+    $submitButton.Content = "Submit"
+    $submitButton.Width = 100
+    $submitButton.FontSize = 16
+    $submitButton.HorizontalAlignment = 'Center'
+    $submitButton.Margin = "10,10,10,10"  # Directly setting margin
+
+    # Add click event handler for the button
+    $submitButton.Add_Click({
+        $enteredPin = $pinBox.Password  # Get the entered PIN
+        Validate-Pin -window $mainWindow -pinInput $enteredPin  # Validate the PIN
+        $pinWindow.Close()  # Close the PIN entry window
+    })
+
+    $stackPanel.Children.Add($submitButton)
+
+    # Set the content of the PIN window to the stack panel
+    $pinWindow.Content = $stackPanel
+    $pinWindow.ShowDialog()  # Show the PIN entry window as a dialog
+}
+
+# Create the full-screen emergency window
+$window = New-Object -TypeName System.Windows.Window
+$window.Title = "Emergency Alert"
+$window.WindowStartupLocation = "CenterScreen"
+$window.WindowState = 'Maximized'  # Full-screen
+$window.Topmost = $true  # Always on top
+$window.WindowStyle = 'None'  # No borders or title bar
+$window.ResizeMode = 'NoResize'
+$window.Background = 'Red'
+
+# Create a grid to organize content
+$grid = New-Object -TypeName System.Windows.Controls.Grid
+
+# Create emergency message label
+$label = New-Object -TypeName System.Windows.Controls.Label
+$label.Content = "Emergency Lock-Down!"
+$label.FontSize = 60  # Large font for the message
+$label.Foreground = 'White'
+$label.HorizontalAlignment = 'Center'
+$label.VerticalAlignment = 'Center'
+
+# Add label to the grid
+$grid.Children.Add($label)
+
+# Create "Acknowledge" button and place it in the bottom-right corner
+$ackButton = New-Object -TypeName System.Windows.Controls.Button
+$ackButton.Content = "Acknowledge"
+$ackButton.Width = 120
+$ackButton.Height = 50
+$ackButton.FontSize = 16
+$ackButton.HorizontalAlignment = 'Right'
+$ackButton.VerticalAlignment = 'Bottom'
+$ackButton.Margin = "0,0,20,20"  # Position the button in the bottom-right corner
+
+# Add click event handler for the button
+$ackButton.Add_Click({
+    Show-PinPrompt -mainWindow $window  # Open the PIN prompt when the button is clicked
+})
+
+# Add the button to the grid
+$grid.Children.Add($ackButton)
+
+# Set the window's content to the grid
+$window.Content = $grid
+$window.ShowDialog()
